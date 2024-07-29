@@ -1,7 +1,7 @@
 from datetime import datetime
 import os
-import server_package.server_data as server_data
-import server_package.server_response as server_response
+import connection_pool.server_package.server_data as server_data
+import connection_pool.server_package.server_response as server_response
 from itertools import islice
 
 

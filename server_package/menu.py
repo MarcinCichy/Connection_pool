@@ -1,9 +1,9 @@
-from server_package.functions import SystemUtilities
-from server_package.message_management import MessageManagement
-from server_package.user_management import UserManagement
-from server_package.user_authentication import UserAuthentication
-from server_package.database_support import DatabaseSupport
-import server_package.server_response as server_response
+from connection_pool.server_package.functions import SystemUtilities
+from connection_pool.server_package.message_management import MessageManagement
+from connection_pool.server_package.user_management import UserManagement
+from connection_pool.server_package.user_authentication import UserAuthentication
+from connection_pool.server_package.database_support import DatabaseSupport
+import connection_pool.server_package.server_response as server_response
 
 
 class CommandHandler:

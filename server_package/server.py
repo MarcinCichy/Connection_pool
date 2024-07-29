@@ -1,9 +1,9 @@
 import json
 import socket
-from server_package import server_data
-from server_package.menu import CommandHandler
-from server_package.functions import SystemUtilities
-from server_package.database_support import DatabaseSupport
+from connection_pool.server_package import server_data
+from connection_pool.server_package.menu import CommandHandler
+from connection_pool.server_package.functions import SystemUtilities
+from connection_pool.server_package.database_support import DatabaseSupport
 
 
 class Server:

@@ -1,7 +1,7 @@
 import os
 import psycopg2
 from psycopg2 import connect as pg_connect
-from server_package.config import db_config
+from connection_pool.server_package.config import db_config
 # from tests.unit.test_config import test_db_config
 
 

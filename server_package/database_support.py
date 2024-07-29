@@ -1,6 +1,6 @@
 from functools import wraps
-import server_package.server_response as server_response
-from server_package.connect import connect
+import connection_pool.server_package.server_response as server_response
+from connection_pool.server_package.connect import connect
 from psycopg2 import sql
 
 

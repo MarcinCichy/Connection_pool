@@ -1,5 +1,5 @@
-import server_package.server_response as server_response
-import server_package.server_data as server_data
+import connection_pool.server_package.server_response as server_response
+import connection_pool.server_package.server_data as server_data
 
 
 class MessageManagement:

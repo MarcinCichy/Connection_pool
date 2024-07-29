@@ -1,5 +1,5 @@
-import server_package.server_response as server_response
-from server_package.crypt_supprt import CryptoSupport
+import connection_pool.server_package.server_response as server_response
+from connection_pool.server_package.crypt_supprt import CryptoSupport
 
 
 class UserManagement:

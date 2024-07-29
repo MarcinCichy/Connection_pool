@@ -1,4 +1,4 @@
-from server_package.connect import connect
+from connection_pool.server_package.connect import connect
 # from server_package.database_support import DatabaseSupport
 
 def test_connection():
