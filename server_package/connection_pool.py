@@ -8,8 +8,8 @@ class ConnectionPool:
         self.minconn = minconn
         self.maxconn = maxconn
         self.all_connections = []
-        self.in_use_con = 0
-        self.initailize_pool()
+        self.in_use_conn = 0
+        self.initialize_pool()
 
     def initialize_pool(self):
         for _ in range(self.minconn):
@@ -18,6 +18,23 @@ class ConnectionPool:
     def create_new_connection(self):
         params = db_config()
         return pg_connect(**params)
+
+    def aquire(self):
+        if self.all_connections:
+            conn = self.all_connections.pop()
+            self.in_use_conn += 1
+            return conn
+        elif self.in_use_conn < self.maxconn:
+            self.in_use_conn += 1
+            return self.create_new_connection()
+        else:
+            raise Exception("Max connections limit reached")
+
+    def release(self, conn):
+        self.in_use_conn -=1
+        self.all_connections.append(conn)
+
+
 
 
 
