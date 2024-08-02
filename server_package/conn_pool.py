@@ -1,4 +1,3 @@
-import psycopg2
 from psycopg2 import connect as pg_connect
 from connection_pool.server_package.config import db_config
 
@@ -33,6 +32,14 @@ class ConnectionPool:
     def release(self, conn):
         self.in_use_conn -=1
         self.all_connections.append(conn)
+
+    def handle_connection_error(self, conn):
+        self.in_use_conn -= 1
+        conn.close()
+        if len(self.all_connections) < self.minconn:
+            self.all_connections.append(self.create_new_connection())
+
+
 
 
 

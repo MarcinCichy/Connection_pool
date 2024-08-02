@@ -1,6 +1,5 @@
 import time
-from connection_pool.server_package.connect import connect
-# from connection_pool.server_package.database_support import DatabaseSupport
+from connection_pool.server_package.connect import connect, release_connection, handle_connection_error
 
 
 def test_connection():
