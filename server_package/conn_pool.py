@@ -30,7 +30,7 @@ class ConnectionPool:
             raise Exception("Max connections limit reached")
 
     def release(self, conn):
-        self.in_use_conn -=1
+        self.in_use_conn -= 1
         self.all_connections.append(conn)
 
     def handle_connection_error(self, conn):

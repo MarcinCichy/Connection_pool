@@ -4,19 +4,13 @@ from connection_pool.server_package.connect import connect, release_connection, 
 
 def test_connection():
     for _ in range(10000):
-
-        # Nawiązanie połączenia z bazą danych
         conn = connect()
         try:
-            #print("Połączenie z bazą danych zostało nawiązane pomyślnie.")
-            # Wykonanie prostego zapytania
             with conn.cursor() as cur:
                 cur.execute("SELECT version();")
                 db_version = cur.fetchone()
-                #print(f"Wersja bazy danych: {db_version}")
-            conn.close()
+                print(f"Wersja bazy danych: {db_version}")
         except Exception as e:
-            # print(f"Wystąpił błąd podczas łączenia z bazą danych: {e}")
             handle_connection_error(conn)
             raise e
         finally:
