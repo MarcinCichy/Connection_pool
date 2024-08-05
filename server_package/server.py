@@ -15,6 +15,7 @@ class Server:
         self.database_support = DatabaseSupport()
 
     def server_connection(self):
+
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind((self.srv_host, self.srv_port))
             s.listen()

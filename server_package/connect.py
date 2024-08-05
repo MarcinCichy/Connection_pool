@@ -1,9 +1,5 @@
-import os
-import psycopg2
-from psycopg2 import connect as pg_connect
-from connection_pool.server_package.config import db_config
+import time
 from connection_pool.server_package.conn_pool import ConnectionPool
-# from tests.unit.test_config import test_db_config
 
 
 class DatabaseConnectionError(Exception):
@@ -12,6 +8,8 @@ class DatabaseConnectionError(Exception):
 
 pool = ConnectionPool(minconn=5, maxconn=100)
 
+pool.cleanup_if_needed()
+#time.sleep(60)
 
 def connect():
     try:
@@ -26,4 +24,9 @@ def release_connection(conn):
 
 def handle_connection_error(conn):
     pool.handle_connection_error(conn)
+
+
+def info():
+    pool.info()
+
 

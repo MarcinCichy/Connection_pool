@@ -1,20 +1,25 @@
 import time
-from connection_pool.server_package.connect import connect, release_connection, handle_connection_error
+from connection_pool.server_package.connect import connect, release_connection, handle_connection_error, info
+from psycopg2 import sql
 
 
 def test_connection():
-    for _ in range(10000):
+    for i in range(10000):
         conn = connect()
         try:
             with conn.cursor() as cur:
-                cur.execute("SELECT version();")
-                db_version = cur.fetchone()
-                print(f"Wersja bazy danych: {db_version}")
+                with conn.cursor() as cur:
+                    query = sql.SQL("INSERT INTO items (item_name, item_quantity ) VALUES (%s, %s)")
+                    cur.execute(query, (f'Item {i}', 25))
+                    conn.commit()
+                info()
         except Exception as e:
             handle_connection_error(conn)
+            info()
             raise e
         finally:
             release_connection(conn)
+            info()
 
 
 if __name__ == "__main__":

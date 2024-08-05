@@ -1,21 +1,19 @@
 import time
-from connection_pool.server_package.connect import connect
+from connection_pool.server_package.connect_p import connect
 # from connection_pool.server_package.database_support import DatabaseSupport
+from psycopg2 import sql
 
 
 def test_connection():
-    for _ in range(10000):
+    for i in range(10000):
         try:
             # Nawiązanie połączenia z bazą danych
             conn = connect()
             if conn:
-                #print("Połączenie z bazą danych zostało nawiązane pomyślnie.")
-                # Wykonanie prostego zapytania
                 with conn.cursor() as cur:
-                    cur.execute("SELECT version();")
-                    db_version = cur.fetchone()
-                    #print(f"Wersja bazy danych: {db_version}")
-                conn.close()
+                    query = sql.SQL("INSERT INTO items (item_name, item_quantity ) VALUES (%s, %s)")
+                    cur.execute(query, (f'Item {i}', 25))
+                    conn.commit()
         except Exception as e:
             print(f"Wystąpił błąd podczas łączenia z bazą danych: {e}")
 
