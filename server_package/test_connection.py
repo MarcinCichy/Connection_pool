@@ -16,6 +16,10 @@ def test_connection():
                     conn.commit()
         except Exception as e:
             print(f"Wystąpił błąd podczas łączenia z bazą danych: {e}")
+        finally:
+            if conn:
+                conn.close()
+        print(f"\r Number of querrys = {i} \r")
 
 
 if __name__ == "__main__":
