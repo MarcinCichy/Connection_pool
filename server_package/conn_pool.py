@@ -2,6 +2,7 @@ import time
 from psycopg2 import connect as pg_connect
 from connection_pool.server_package.config import db_config
 
+
 class ConnectionPool:
     def __init__(self, minconn, maxconn, cleanup_interval=60):
         self.minconn = minconn
@@ -52,7 +53,6 @@ class ConnectionPool:
         if current_time - self.last_cleanup_time >= self.cleanup_interval:
             self.cleanup_pool()
             self.last_cleanup_time = current_time
-
 
     def cleanup_pool(self):
         while len(self.all_connections) > self.minconn:

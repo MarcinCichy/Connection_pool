@@ -1,15 +1,15 @@
-import time
 from connection_pool.server_package.conn_pool import ConnectionPool
+from connection_pool.server_package.config import connection_pool_config
 
 
 class DatabaseConnectionError(Exception):
     pass
 
 
-pool = ConnectionPool(minconn=5, maxconn=100)
+pool = ConnectionPool(minconn=5, maxconn=15)
 
 pool.cleanup_if_needed()
-#time.sleep(60)
+
 
 def connect():
     try:
