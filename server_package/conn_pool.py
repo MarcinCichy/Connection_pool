@@ -37,16 +37,29 @@ class ConnectionPool:
             raise Exception("Max connections limit reached")
 
     def release(self, conn):
-        self.in_use_conn -= 1
-        self.all_connections.append(conn)
-        print(f"Released connection. In use: {self.in_use_conn}, Available: {len(self.all_connections)}")
+        if self.in_use_conn > 0:
+            self.in_use_conn -= 1
+            if len(self.all_connections) < self.maxconn:
+                if not conn.closed:  # Dodajemy połączenie do puli tylko, jeśli jest otwarte
+                    self.all_connections.append(conn)
+                    print(f"Released connection. In use: {self.in_use_conn}, Available: {len(self.all_connections)}")
+                else:
+                    print("Connection was already closed, not adding back to the pool.")
+            else:
+                print(f"Pool is full, closing connection.")
+                conn.close()
+        else:
+            print("[RELEASE] No connections in use, something went wrong.")
 
     def handle_connection_error(self, conn):
-        self.in_use_conn -= 1
-        conn.close()
-        if len(self.all_connections) < self.minconn:
-            self.all_connections.append(self.create_new_connection())
-        print(f"Handled connection error. In use: {self.in_use_conn}, Available: {len(self.all_connections)}")
+        if self.in_use_conn > 0:
+            self.in_use_conn -= 1
+            conn.close()
+            if len(self.all_connections) < self.minconn:
+                self.all_connections.append(self.create_new_connection())
+            print(f"Handled connection error. In use: {self.in_use_conn}, Available: {len(self.all_connections)}")
+        else:
+            print("[ERROR] No connections in use, something went wrong.")
 
     def cleanup_if_needed(self):
         current_time = time.time()
@@ -58,16 +71,8 @@ class ConnectionPool:
         while len(self.all_connections) > self.minconn:
             conn = self.all_connections.pop()
             conn.close()
+            print("[CLEANUP] Closed an idle connection.")
 
     def info(self):
-        print(f"Number of pool: {self.in_use_conn}, Available connections: {len(self.all_connections)}")
-
-
-
-
-
-
-
-
-
-
+        total_connections = self.in_use_conn + len(self.all_connections)
+        print(f"Number of pool: {self.in_use_conn}, Available connections: {len(self.all_connections)}, Total: {total_connections}")
