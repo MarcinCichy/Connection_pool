@@ -6,8 +6,8 @@ class DatabaseConnectionError(Exception):
     pass
 
 
-pool = ConnectionPool(minconn=5, maxconn=15)
-
+params = connection_pool_config()
+pool = ConnectionPool(int(params['minconn']), int(params['maxconn']))
 pool.cleanup_if_needed()
 
 

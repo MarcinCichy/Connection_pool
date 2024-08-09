@@ -1,9 +1,9 @@
 import json
 import socket
 from connection_pool.server_package import server_data
-from connection_pool.server_package.menu import CommandHandler
-from connection_pool.server_package.functions import SystemUtilities
-from connection_pool.server_package.database_support import DatabaseSupport
+# from connection_pool.server_package.menu import CommandHandler
+# from connection_pool.server_package.functions import SystemUtilities
+# from connection_pool.server_package.database_support import DatabaseSupport
 
 
 class Server:
@@ -11,8 +11,8 @@ class Server:
         self.srv_host = srv_host
         self.srv_port = srv_port
         self.srv_buff = srv_buff
-        self.handler = CommandHandler()
-        self.database_support = DatabaseSupport()
+        # self.handler = CommandHandler()
+        # self.database_support = DatabaseSupport()
 
     def server_connection(self):
 
@@ -22,7 +22,7 @@ class Server:
             print("Server started.")
             while True:
                 conn, addr = s.accept()
-                SystemUtilities.clear_screen()
+                # SystemUtilities.clear_screen()
                 with conn:
                     print(f"Connected by {addr}")
                     received_data = conn.recv(self.srv_buff)
@@ -40,23 +40,23 @@ class Server:
                             print("Server stopped")
                             break
 
-    def get_username_from_received_data(self, data):
-        username = next(iter(data))
-        return username
-
-    def get_user_data_from_db(self, username):
-        user_data_db = self.database_support.get_info_about_user(username)
-        return user_data_db
-
-    def handle_connection(self, command, user_data_db):
-        print(f'USER_DATA_DB = {user_data_db}')
-        if user_data_db is not None:
-            permissions = user_data_db.get('permissions')
-        else:
-            permissions = None
-        print(f'PERMISSIONS = {permissions}')
-        result = self.json_serialize_response(self.handler.use_command(command, permissions))
-        return result
+    # def get_username_from_received_data(self, data):
+    #     username = next(iter(data))
+    #     return username
+    #
+    # def get_user_data_from_db(self, username):
+    #     user_data_db = self.database_support.get_info_about_user(username)
+    #     return user_data_db
+    #
+    # def handle_connection(self, command, user_data_db):
+    #     print(f'USER_DATA_DB = {user_data_db}')
+    #     if user_data_db is not None:
+    #         permissions = user_data_db.get('permissions')
+    #     else:
+    #         permissions = None
+    #     print(f'PERMISSIONS = {permissions}')
+    #     result = self.json_serialize_response(self.handler.use_command(command, permissions))
+    #     return result
 
     @staticmethod
     def json_decode_received_data(received_data):
@@ -74,7 +74,7 @@ class Server:
 
 
 def start():
-    SystemUtilities.clear_screen()
+    # SystemUtilities.clear_screen()
     server = Server(server_data.HOST, server_data.PORT, server_data.BUFFER_SIZE)
     server.server_connection()
 
