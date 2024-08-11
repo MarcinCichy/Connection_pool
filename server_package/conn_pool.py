@@ -4,10 +4,10 @@ from connection_pool.server_package.config import db_config
 
 
 class ConnectionPool:
-    def __init__(self, minconn, maxconn, cleanup_interval=60):
-        self.minconn = minconn
-        self.maxconn = maxconn
-        self.cleanup_interval = cleanup_interval
+    def __init__(self, minconn, maxconn, cleanup_interval):
+        self.minconn = int(minconn)
+        self.maxconn = int(maxconn)
+        self.cleanup_interval = int(cleanup_interval)
         self.all_connections = []
         self.in_use_conn = 0
         self.last_cleanup_time = time.time()

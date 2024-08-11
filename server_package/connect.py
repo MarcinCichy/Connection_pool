@@ -7,7 +7,7 @@ class DatabaseConnectionError(Exception):
 
 
 params = connection_pool_config()
-pool = ConnectionPool(int(params['minconn']), int(params['maxconn']))
+pool = ConnectionPool(params['minconn'], params['maxconn'], params['cleanup_interval'])
 pool.cleanup_if_needed()
 
 
