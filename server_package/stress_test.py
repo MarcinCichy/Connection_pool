@@ -17,7 +17,7 @@ def stress_test_operation(thread_id):
             with conn.cursor() as cur:
                 if random.random() < 0.1:
                     cur.execute("SELCT * FROM non_existing_table")
-                    print(f"[SELCT]")
+                    print(f"[SELCT ERROR]")
                 else:
                     operation = random.choice(["insert", "select"])
                     if operation == "insert":

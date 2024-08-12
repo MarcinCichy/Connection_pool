@@ -1,13 +1,13 @@
 import json
 import socket
-from connection_pool.server_package import server_data
+from connection_pool.server_package.config import server_data
 
 
 class Server:
     def __init__(self, srv_host, srv_port, srv_buff):
         self.srv_host = srv_host
-        self.srv_port = srv_port
-        self.srv_buff = srv_buff
+        self.srv_port = int(srv_port)
+        self.srv_buff = int(srv_buff)
 
     def server_connection(self):
 
@@ -38,7 +38,8 @@ class Server:
 
 
 def start():
-    server = Server(server_data.HOST, server_data.PORT, server_data.BUFFER_SIZE)
+    params = server_data()
+    server = Server(params['host'], params['port'], params['buffer_size'])
     server.server_connection()
 
 
