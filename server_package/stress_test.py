@@ -10,6 +10,7 @@ params = stress_test()
 NUM_THREADS = int(params['num_threads'])
 TEST_DURATION = int(params['test_duration'])
 
+
 def stress_test_operation(thread_id):
     start_time = time.time()
     conn = None
