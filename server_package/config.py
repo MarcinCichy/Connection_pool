@@ -44,3 +44,18 @@ def server_data(filename='settings.ini', section='server_data'):
         raise Exception(f'Section {section} not found in the {filename} file')
 
     return sd
+
+
+def stress_test(filename='settings.ini', section='stress_test'):
+    parser = ConfigParser()
+    parser.read(filename)
+
+    st = {}
+    if parser.has_section(section):
+        params = parser.items(section)
+        for param in params:
+            st[param[0]] = param[1]
+    else:
+        raise Exception(f'Section {section} not found in the {filename} file')
+
+    return st

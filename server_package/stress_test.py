@@ -2,11 +2,13 @@ import time
 import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from connection_pool.server_package.connect import connect, release_connection, handle_connection_error, info
+from connection_pool.server_package.config import stress_test
 from psycopg2 import sql
 
-NUM_THREADS = 110
-TEST_DURATION = 300  # 5 minut
 
+params = stress_test()
+NUM_THREADS = int(params['num_threads'])
+TEST_DURATION = int(params['test_duration'])
 
 def stress_test_operation(thread_id):
     start_time = time.time()
