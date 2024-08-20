@@ -1,5 +1,5 @@
 ==================== 
-FILE: connection_pool/server_package/config.py 
+FILE: E:/Programowanie/zaRaczke/Back-End/L009_Connection_pool/connection_pool/server_package/config.py 
 
 from configparser import ConfigParser
 
@@ -35,12 +35,12 @@ def server_data(filename='settings.ini', section='server_data'):
 
 
 def stress_test(filename='settings.ini', section='stress_test'):
-    return load_config(filename, section)
-
+    return load_config(filename, section) 
 
 ==================== 
-FILE: connection_pool/server_package/conn_pool.py 
+FILE: E:/Programowanie/zaRaczke/Back-End/L009_Connection_pool/connection_pool/server_package/conn_pool.py 
 
+import threading
 import time
 from psycopg2 import connect as pg_connect
 from connection_pool.server_package.config import db_config
@@ -54,75 +54,123 @@ class ConnectionPool:
         self.all_connections = []
         self.in_use_conn = 0
         self.last_cleanup_time = time.time()
+        self.lock = threading.Lock()  # Lock do zabezpieczenia wsp�lnych zasob�w
+        self.semaphore = threading.Semaphore(self.maxconn)  # Semaphore do zarz�dzania dost�pem
         self.initialize_pool()
 
     def initialize_pool(self):
-        for _ in range(self.minconn):
-            self.all_connections.append(self.create_new_connection())
-        print(f"Initialized connection pool with {self.minconn} connections.")
+        with self.lock:
+            for _ in range(self.minconn):
+                self.all_connections.append(self.create_new_connection())
+            print(f"Initialized connection pool with {self.minconn} connections.")
 
     def create_new_connection(self):
         params = db_config()
         return pg_connect(**params)
 
     def aquire(self):
-        self.cleanup_if_needed()
-        if self.all_connections:
-            conn = self.all_connections.pop()
-            self.in_use_conn += 1
-            print(f"[AQUIRE] Acquired connection. In use: {self.in_use_conn}, Available: {len(self.all_connections)}")
-            return conn
-        elif self.in_use_conn < self.maxconn:
-            self.in_use_conn += 1
-            print(f"[CREATE] Creating new connection. In use: {self.in_use_conn}, Available: {len(self.all_connections)}")
-            return self.create_new_connection()
-        else:
-            raise Exception("[FULL] Max connections limit reached")
+        self.semaphore.acquire()
+
+        try:
+            with self.lock:
+                self.cleanup_if_needed()
+                if self.all_connections:
+                    conn = self.all_connections.pop()
+                    self.in_use_conn += 1
+                    print(f"[AQUIRE] Acquired connection. In use: {self.in_use_conn}, Available: {len(self.all_connections)}")
+                    return conn
+                else:
+                    self.in_use_conn += 1
+                    print(f"[CREATE] Creating new connection. In use: {self.in_use_conn}, Available: {len(self.all_connections)}")
+                    conn = self.create_new_connection()
+                    print("[DEBUG] New connection created.")
+                    return conn
+        except Exception as e:
+            self.semaphore.release()
+            raise e
 
     def release(self, conn):
-        if self.in_use_conn > 0:
-            self.in_use_conn -= 1
-            if len(self.all_connections) < self.maxconn:
-                if not conn.closed:
-                    self.all_connections.append(conn)
-                    print(f"[RELEASE] Released connection. In use: {self.in_use_conn}, Available: {len(self.all_connections)}")
+        print("[DEBUG] Releasing connection...")
+        try:
+            with self.lock:
+                if self.in_use_conn > 0:
+                    self.in_use_conn -= 1
+                    if len(self.all_connections) < self.maxconn:
+                        if not conn.closed:
+                            self.all_connections.append(conn)
+                            print(
+                                f"[RELEASE] Released connection. In use: {self.in_use_conn}, Available: {len(self.all_connections)}")
+                        else:
+                            print("[RELEASE] Connection was already closed, not adding back to the pool.")
+                    else:
+                        print(f"[RELEASE] Pool is full, closing connection.")
+                        conn.close()
                 else:
-                    print("[RELEASE] Connection was already closed, not adding back to the pool.")
-            else:
-                print(f"[RELEASE] Pool is full, closing connection.")
-                conn.close()
-        else:
-            print("[RELEASE] No connections in use, something went wrong.")
+                    print("[RELEASE ERROR] No connections in use, something went wrong.")
+                    conn.close()
+        except Exception as e:
+            print(f"[RELEASE ERROR] Exception occurred: {e}")
+            raise e
+        finally:
+            self.semaphore.release()  # Zwolnij miejsce w semaforze
+            print("[DEBUG] Semaphore released.")
 
     def handle_connection_error(self, conn):
-        if self.in_use_conn > 0:
-            self.in_use_conn -= 1
-            conn.close()
-            if len(self.all_connections) < self.minconn:
-                self.all_connections.append(self.create_new_connection())
-            print(f"[ERROR] Handled connection error. In use: {self.in_use_conn}, Available: {len(self.all_connections)}")
-        else:
-            print("[ERROR] No connections in use, something went wrong.")
+        try:
+            with self.lock:
+                if self.in_use_conn > 0:
+                    self.in_use_conn -= 1
+                    try:
+                        conn.close()
+                    except Exception as close_exception:
+                        print(f"[ERROR] Error closing connection: {close_exception}")
+                    finally:
+                        if len(self.all_connections) < self.minconn:
+                            try:
+                                self.all_connections.append(self.create_new_connection())
+                            except Exception as creation_exception:
+                                print(f"[ERROR] Error creating new connection: {creation_exception}")
+                        print(
+                            f"[ERROR] Handled connection error. In use: {self.in_use_conn}, Available: {len(self.all_connections)}")
+                else:
+                    print("[ERROR] No connections in use, something went wrong.")
+        except Exception as e:
+            print(f"[HANDLE ERROR] Exception occurred: {e}")
+            raise e
+        finally:
+            self.semaphore.release()  # Zwolnij miejsce w semaforze
+            print("[DEBUG] Semaphore released.")
 
     def cleanup_if_needed(self):
         current_time = time.time()
+        print(f"[DEBUG] Cleanup check, time since last cleanup: {current_time - self.last_cleanup_time}")
         if current_time - self.last_cleanup_time >= self.cleanup_interval:
+            print("[DEBUG] Cleanup needed, performing cleanup...")
             self.cleanup_pool()
             self.last_cleanup_time = current_time
 
     def cleanup_pool(self):
-        while len(self.all_connections) > self.minconn:
-            conn = self.all_connections.pop()
-            conn.close()
-            print("[CLEANUP] Closed an idle connection.")
+        def close_connection(conn):
+            try:
+                print("[CLEANUP] Closing connection...")
+                conn.close()
+                print("[CLEANUP] Connection closed.")
+            except Exception as e:
+                print(f"[CLEANUP ERROR] Error closing connection: {e}")
+
+        with self.lock:
+            while len(self.all_connections) > self.minconn:
+                conn = self.all_connections.pop()
+                threading.Thread(target=close_connection, args=(conn,)).start()
 
     def info(self):
-        total_connections = self.in_use_conn + len(self.all_connections)
-        print(f"[INFO] Number of pool: {self.in_use_conn}, Available connections: {len(self.all_connections)}, Total: {total_connections}")
+        with self.lock:
+            total_connections = self.in_use_conn + len(self.all_connections)
+            print(f"[INFO] Number of pool: {self.in_use_conn}, Available connections: {len(self.all_connections)}, Total: {total_connections}")
  
 
 ==================== 
-FILE: connection_pool/server_package/connect.py 
+FILE: E:/Programowanie/zaRaczke/Back-End/L009_Connection_pool/connection_pool/server_package/connect.py 
 
 from connection_pool.server_package.conn_pool import ConnectionPool
 from connection_pool.server_package.config import connection_pool_config
@@ -159,7 +207,7 @@ def info():
  
 
 ==================== 
-FILE: connection_pool/server_package/server.py 
+FILE: E:/Programowanie/zaRaczke/Back-End/L009_Connection_pool/connection_pool/server_package/server.py 
 
 import json
 import socket
@@ -211,7 +259,7 @@ if __name__ == '__main__':
  
 
 ==================== 
-FILE: connection_pool/server_package/stress_test.py 
+FILE: E:/Programowanie/zaRaczke/Back-End/L009_Connection_pool/connection_pool/server_package/stress_test.py 
 
 import time
 import random
@@ -224,6 +272,7 @@ from psycopg2 import sql
 params = stress_test()
 NUM_THREADS = int(params['num_threads'])
 TEST_DURATION = int(params['test_duration'])
+
 
 def stress_test_operation(thread_id):
     start_time = time.time()
@@ -281,8 +330,9 @@ if __name__ == "__main__":
     run_stress_test() 
 
 
-==================== 
+====================
 FILE: connection_pool/server_package/settings.ini
+
 [postgresql]
 host=127.0.0.1
 database=CP_BASE
@@ -301,4 +351,4 @@ buffer_size=1024
 
 [stress_test]
 num_threads=110
-test_duration=300
+test_duration=60

@@ -5,7 +5,6 @@ from connection_pool.server_package.connect import connect, release_connection, 
 from connection_pool.server_package.config import stress_test
 from psycopg2 import sql
 
-
 params = stress_test()
 NUM_THREADS = int(params['num_threads'])
 TEST_DURATION = int(params['test_duration'])
@@ -19,8 +18,8 @@ def stress_test_operation(thread_id):
             conn = connect()
             with conn.cursor() as cur:
                 if random.random() < 0.1:
-                    cur.execute("SELCT * FROM non_existing_table")
-                    print(f"[SELCT ERROR]")
+                    cur.execute("SELECT * FROM non_existing_table")
+                    print(f"[SELECT ERROR]")
                 else:
                     operation = random.choice(["insert", "select"])
                     if operation == "insert":
@@ -44,10 +43,7 @@ def stress_test_operation(thread_id):
         finally:
             if conn:
                 release_connection(conn)
-
         time.sleep(random.uniform(0.01, 0.1))
-
-    time.sleep(TEST_DURATION * 0.1)
 
 
 def run_stress_test():
@@ -65,3 +61,4 @@ def run_stress_test():
 
 if __name__ == "__main__":
     run_stress_test()
+    print(f'End of Stress Test')

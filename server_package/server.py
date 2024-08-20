@@ -10,7 +10,6 @@ class Server:
         self.srv_buff = int(srv_buff)
 
     def server_connection(self):
-
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind((self.srv_host, self.srv_port))
             s.listen()
@@ -18,19 +17,19 @@ class Server:
             while True:
                 conn, addr = s.accept()
                 with conn:
-                    print(f"Connected by {addr}")
-                    received_data = conn.recv(self.srv_buff)
-                    print(f'Server USER DATA = {received_data}')
+                    try:
+                        print(f"Connected by {addr}")
+                        received_data = conn.recv(self.srv_buff)
+                        print(f'Server USER DATA = {received_data}')
+                    except Exception as e:
+                        print(f"Error handling connection from {addr}: {e}")
 
     @staticmethod
     def json_decode_received_data(received_data):
         decoded_data = json.loads(received_data)
-        if 'login' in decoded_data['command']:
-            print(f"Command received from Client: login")
-            return decoded_data["command"]
-        else:
-            print(f"Command received from Client: {decoded_data['command']}")
-        return decoded_data["command"]
+        command = decoded_data.get('command', '')
+        print(f"Command received from Client: {command}")
+        return command
 
     @staticmethod
     def json_serialize_response(response):

@@ -8,28 +8,23 @@ def load_config(filename='settings.ini', section=None):
     parser = ConfigParser()
     parser.read(filename)
 
-    config = {}
-    if parser.has_section(section):
-        params = parser.items(section)
-        for param in params:
-            config[param[0]] = param[1]
-    else:
+    if not parser.has_section(section):
         raise Exception(f'Section {section} not found in the {filename} file')
 
-    return config
+    return {param[0]: param[1] for param in parser.items(section)}
 
 
-def db_config(filename='settings.ini', section='postgresql'):
-    return load_config(filename, section)
+def db_config(filename='settings.ini'):
+    return load_config(filename, 'postgresql')
 
 
-def connection_pool_config(filename='settings.ini', section='connection_pool'):
-    return load_config(filename, section)
+def connection_pool_config(filename='settings.ini'):
+    return load_config(filename, 'connection_pool')
 
 
-def server_data(filename='settings.ini', section='server_data'):
-    return load_config(filename, section)
+def server_data(filename='settings.ini'):
+    return load_config(filename, 'server_data')
 
 
-def stress_test(filename='settings.ini', section='stress_test'):
-    return load_config(filename, section)
+def stress_test(filename='settings.ini'):
+    return load_config(filename, 'stress_test')
