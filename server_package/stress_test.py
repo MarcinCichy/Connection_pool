@@ -48,6 +48,7 @@ def stress_test_operation(thread_id):
     except Exception as e:
         print(f"Thread {thread_id} encountered a fatal error: {e}")
 
+
 def run_stress_test():
     start_time = time.time()
     with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
@@ -55,6 +56,7 @@ def run_stress_test():
         for future in futures:
             future.result()
     print(f"Stress test completed in {time.time() - start_time} seconds")
+
 
 if __name__ == "__main__":
     run_stress_test()

@@ -1,4 +1,5 @@
 import threading
+import time
 from psycopg2 import connect as pg_connect
 from connection_pool.server_package.config import db_config
 
@@ -12,6 +13,7 @@ class ConnectionPool:
         self.lock = threading.Lock()
         self.semaphore = threading.BoundedSemaphore(self.maxconn)
         self.initialize_pool()
+        self.start_cleanup_thread()
 
     def initialize_pool(self):
         with self.lock:
@@ -101,6 +103,17 @@ class ConnectionPool:
             while len(self.all_connections) < self.minconn:
                 self.all_connections.append(self.create_new_connection())
             print(f"[MAINTENANCE] Ensured minimum connections. Available: {len(self.all_connections)}")
+
+    def start_cleanup_thread(self):
+        """Start a background thread that cleans up the pool periodically."""
+        cleanup_thread = threading.Thread(target=self.cleanup_task, daemon=True)
+        cleanup_thread.start()
+
+    def cleanup_task(self):
+        """Periodically clean up the pool to ensure it's not overpopulated."""
+        while True:
+            time.sleep(self.cleanup_interval)
+            self.cleanup_pool_async()
 
     def cleanup_pool_async(self):
         threading.Thread(target=self.cleanup_pool).start()
