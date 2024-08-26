@@ -10,6 +10,8 @@ class ConnectionPool:
         self.cleanup_interval = int(cleanup_interval)
         self.all_connections = []
         self.in_use_conn = 0
+        self.threads_waiting = 0
+        self.total_threads = 0
         self.lock = threading.Lock()
         self.semaphore = threading.BoundedSemaphore(self.maxconn)
         self.initialize_pool()
@@ -23,56 +25,67 @@ class ConnectionPool:
 
     def create_new_connection(self):
         params = db_config()
-        return pg_connect(**params)
+        conn = pg_connect(**params)
+        print(f"[CREATE] New connection created: {conn}")
+        return conn
 
     def acquire(self):
         print("[DEBUG] Attempting to acquire semaphore...")
+        with self.lock:
+            self.threads_waiting += 1
+            self.total_threads += 1
         if not self.semaphore.acquire(timeout=10):
+            with self.lock:
+                self.threads_waiting -= 1
             raise Exception("Failed to acquire a connection: Timeout")
 
         with self.lock:
+            self.threads_waiting -= 1
             if self.all_connections:
                 conn = self.all_connections.pop()
+                print(f"[ACQUIRE] Connection acquired from pool: {conn}")
             else:
                 conn = self.create_new_connection()
+                print(f"[ACQUIRE] New connection created and acquired: {conn}")
             self.in_use_conn += 1
-            print(f"[ACQUIRE] Acquired connection. In use: {self.in_use_conn}, Available: {len(self.all_connections)}")
             return conn
 
     def release(self, conn):
         with self.lock:
-            if not conn or self.is_connection_closed(conn):
-                print(f"[RELEASE ERROR] Connection is already closed: {conn}")
+            if not conn:
+                print("[RELEASE ERROR] No connection provided to release.")
+                return
+            if self.is_connection_closed(conn):
+                print(f"[RELEASE ERROR] Connection is already closed and will not be released: {conn}")
                 return
 
-            if self.in_use_conn > 0:
-                self.in_use_conn -= 1
+            self.in_use_conn -= 1
+            if not self.is_connection_closed(conn):
                 if len(self.all_connections) < self.maxconn:
                     self.all_connections.append(conn)
+                    print(f"[RELEASE] Connection added back to pool: {conn}")
                 else:
                     self.close_connection(conn)
-                print(f"[RELEASE] Connection released. In use: {self.in_use_conn}, Available: {len(self.all_connections)}")
-                self.semaphore.release()
+                    print(f"[RELEASE] Connection closed as pool is full: {conn}")
             else:
-                print(f"[RELEASE ERROR] Failed to release connection: Semaphore released too many times")
+                print(f"[RELEASE] Connection was already closed and not added to pool: {conn}")
+
+            self.semaphore.release()
 
     def handle_connection_error(self, conn):
-        print("[ERROR] Handling connection error...")
+        print(f"[ERROR] Handling connection error for: {conn}")
         with self.lock:
             if conn and not self.is_connection_closed(conn):
                 self.in_use_conn -= 1
-                try:
-                    conn.close()
-                except Exception as e:
-                    print(f"[HANDLE ERROR] Failed to close connection: {e}")
-                finally:
-                    if len(self.all_connections) < self.maxconn:
-                        self.all_connections.append(self.create_new_connection())
-                        print("[ERROR] Replaced bad connection with a new one.")
-                    self.semaphore.release()
-                    print(f"[DEBUG] Semaphore released after handling connection error. In use: {self.in_use_conn}, Available: {len(self.all_connections)}")
-            else:
-                print(f"[HANDLE ERROR] Invalid connection error handling: Connection is None or already closed")
+                self.close_connection(conn)
+                print(f"[ERROR] Connection closed due to error: {conn}")
+
+            if len(self.all_connections) < self.maxconn:
+                new_conn = self.create_new_connection()
+                self.all_connections.append(new_conn)
+                print(f"[ERROR] Replaced bad connection with a new one: {new_conn}")
+
+            self.semaphore.release()
 
     def cleanup_pool(self):
         with self.lock:
@@ -84,10 +97,13 @@ class ConnectionPool:
 
     def close_connection(self, conn):
         try:
-            conn.close()
-            print("[CLEANUP] Connection closed.")
+            if not self.is_connection_closed(conn):
+                conn.close()
+                print(f"[CLOSE CONNECTION] Connection closed: {conn}")
+            else:
+                print(f"[CLOSE CONNECTION] Connection was already closed: {conn}")
         except Exception as e:
-            print(f"[CLEANUP ERROR] Error closing connection: {e}")
+            print(f"[CLOSE CONNECTION ERROR] Error closing connection: {e}")
 
     def is_connection_closed(self, conn):
         return conn.closed
@@ -95,7 +111,8 @@ class ConnectionPool:
     def info(self):
         with self.lock:
             total_connections = self.in_use_conn + len(self.all_connections)
-            print(f"[INFO] In use: {self.in_use_conn}, Available: {len(self.all_connections)}, Total: {total_connections}")
+            print(f"[INFO] In use: {self.in_use_conn}, Available: {len(self.all_connections)}, Total: {total_connections}, "
+                  f"Threads waiting: {self.threads_waiting}, Total threads: {self.total_threads}")
 
     def maintain_minconn(self):
         """Ensure there are at least minconn connections in the pool."""
@@ -116,4 +133,5 @@ class ConnectionPool:
             self.cleanup_pool_async()
 
     def cleanup_pool_async(self):
+        """Perform cleanup asynchronously."""
         threading.Thread(target=self.cleanup_pool).start()

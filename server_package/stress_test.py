@@ -16,7 +16,7 @@ def stress_test_operation(thread_id):
     try:
         while time.time() - start_time < TEST_DURATION:
             try:
-                conn = connect()  # Próbuj zdobyć połączenie
+                conn = connect()
                 with conn.cursor() as cur:
                     if random.random() < 0.1:
                         cur.execute("SELECT * FROM non_existing_table")
@@ -43,7 +43,7 @@ def stress_test_operation(thread_id):
             finally:
                 if conn:
                     release_connection(conn)
-                    conn = None  # Upewnij się, że połączenie nie zostanie ponownie zwolnione
+                    conn = None
             time.sleep(random.uniform(0.01, 0.1))
     except Exception as e:
         print(f"Thread {thread_id} encountered a fatal error: {e}")
