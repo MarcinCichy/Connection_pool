@@ -28,3 +28,7 @@ def server_data(filename='settings.ini'):
 
 def stress_test(filename='settings.ini'):
     return load_config(filename, 'stress_test')
+
+
+def test_connection_usage(filename='settings.ini'):
+    return load_config(filename, 'test_connection_usage')
