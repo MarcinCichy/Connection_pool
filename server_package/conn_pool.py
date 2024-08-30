@@ -4,7 +4,7 @@ from connection_pool.server_package.config import db_config
 from connection_pool.server_package.logger_config import setup_logger
 import threading
 
-logger = setup_logger('conn_pool_logger')
+logger = setup_logger('connection_pool_logger')
 
 
 class ConnectionPool:
