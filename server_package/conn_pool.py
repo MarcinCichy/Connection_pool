@@ -39,12 +39,16 @@ class ConnectionPool:
         with self.lock:
             self.threads_waiting += 1
             self.total_threads += 1
-            if not self.semaphore.acquire(timeout=10):
-                self.threads_waiting -= 1
-                logger.error("Failed to acquire a connection: Timeout")
-                raise Exception("Failed to acquire a connection: Timeout")
 
+        if not self.semaphore.acquire(timeout=10):
+            with self.lock:
+                self.threads_waiting -= 1
+            logger.error("Failed to acquire a connection: Timeout")
+            raise Exception("Failed to acquire a connection: Timeout")
+
+        with self.lock:
             self.threads_waiting -= 1
+            self.in_use_conn += 1
             if self.all_connections:
                 conn = self.all_connections.pop()
                 logger.info(f"Connection acquired from pool: {conn}")
@@ -52,16 +56,12 @@ class ConnectionPool:
                 conn = self.create_new_connection()
                 logger.info(f"New connection created and acquired: {conn}")
 
-            self.in_use_conn += 1
-            return conn
+        return conn
 
     def release(self, conn):
         with self.lock:
-            if not conn:
-                logger.warning("No connection provided to release.")
-                return
-            if self.is_connection_closed(conn):
-                logger.warning(f"Connection is already closed and will not be released: {conn}")
+            if not conn or self.is_connection_closed(conn):
+                logger.warning("Connection is already closed and will not be released.")
                 return
 
             self.in_use_conn -= 1
@@ -72,11 +72,10 @@ class ConnectionPool:
                 self.close_connection(conn)
                 logger.info(f"Connection closed as pool is full: {conn}")
 
-            self.semaphore.release()
+        self.semaphore.release()
 
     def handle_connection_error(self, conn):
         with self.lock:
-            logger.error(f"Handling connection error for: {conn}")
             if conn and not self.is_connection_closed(conn):
                 self.in_use_conn -= 1
                 self.close_connection(conn)
@@ -87,7 +86,7 @@ class ConnectionPool:
                 self.all_connections.append(new_conn)
                 logger.info(f"Replaced bad connection with a new one: {new_conn}")
 
-            self.semaphore.release()
+        self.semaphore.release()
 
     def cleanup_pool(self):
         with self.lock:
