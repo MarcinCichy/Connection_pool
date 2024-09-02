@@ -23,3 +23,6 @@ The ConnectionPool class contains the following methods:
 
 Additionally, a stress test (stress_test) has been implemented to evaluate the performance and behavior of the pool under load. 
 The test parameters, as well as connection pool settings, can be modified in the settings.ini file.
+
+
+![Stress Test logs](connection_pool/stress_test_logs.png)

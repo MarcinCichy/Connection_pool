@@ -35,16 +35,15 @@ class ConnectionPool:
 
     def acquire(self):
         logger.debug("Attempting to acquire semaphore...")
+
         with self.lock:
             self.threads_waiting += 1
             self.total_threads += 1
-        if not self.semaphore.acquire(timeout=10):
-            with self.lock:
+            if not self.semaphore.acquire(timeout=10):
                 self.threads_waiting -= 1
-            logger.error("Failed to acquire a connection: Timeout")
-            raise Exception("Failed to acquire a connection: Timeout")
+                logger.error("Failed to acquire a connection: Timeout")
+                raise Exception("Failed to acquire a connection: Timeout")
 
-        with self.lock:
             self.threads_waiting -= 1
             if self.all_connections:
                 conn = self.all_connections.pop()
@@ -52,6 +51,7 @@ class ConnectionPool:
             else:
                 conn = self.create_new_connection()
                 logger.info(f"New connection created and acquired: {conn}")
+
             self.in_use_conn += 1
             return conn
 
@@ -65,21 +65,18 @@ class ConnectionPool:
                 return
 
             self.in_use_conn -= 1
-            if not self.is_connection_closed(conn):
-                if len(self.all_connections) < self.maxconn:
-                    self.all_connections.append(conn)
-                    logger.info(f"Connection added back to pool: {conn}")
-                else:
-                    self.close_connection(conn)
-                    logger.info(f"Connection closed as pool is full: {conn}")
+            if len(self.all_connections) < self.maxconn:
+                self.all_connections.append(conn)
+                logger.info(f"Connection added back to pool: {conn}")
             else:
-                logger.info(f"Connection was already closed and not added to pool: {conn}")
+                self.close_connection(conn)
+                logger.info(f"Connection closed as pool is full: {conn}")
 
             self.semaphore.release()
 
     def handle_connection_error(self, conn):
-        logger.error(f"Handling connection error for: {conn}")
         with self.lock:
+            logger.error(f"Handling connection error for: {conn}")
             if conn and not self.is_connection_closed(conn):
                 self.in_use_conn -= 1
                 self.close_connection(conn)
@@ -116,8 +113,9 @@ class ConnectionPool:
     def info(self):
         with self.lock:
             total_connections = self.in_use_conn + len(self.all_connections)
-            logger.info(f"In use: {self.in_use_conn}, Available: {len(self.all_connections)}, Total: {total_connections}, "
-                         f"Threads waiting: {self.threads_waiting}, Total threads: {self.total_threads}")
+            logger.info(
+                f"In use: {self.in_use_conn}, Available: {len(self.all_connections)}, Total: {total_connections}, "
+                f"Threads waiting: {self.threads_waiting}, Total threads: {self.total_threads}")
 
     def maintain_minconn(self):
         """Ensure there are at least minconn connections in the pool."""
