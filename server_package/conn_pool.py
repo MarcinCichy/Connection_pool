@@ -36,18 +36,29 @@ class ConnectionPool:
     def acquire(self):
         logger.debug("Attempting to acquire semaphore...")
 
+        self._increment_thread_waiting()
+
+        if not self.semaphore.acquire(timeout=10):
+            self._decrement_thread_waiting()
+            logger.error("Failed to acquire a connection: Timeout")
+            raise Exception("Failed to acquire a connection: Timeout")
+
+        conn = self._get_connection()
+
+        self._decrement_thread_waiting()
+        return conn
+
+    def _increment_thread_waiting(self):
         with self.lock:
             self.threads_waiting += 1
             self.total_threads += 1
 
-        if not self.semaphore.acquire(timeout=10):
-            with self.lock:
-                self.threads_waiting -= 1
-            logger.error("Failed to acquire a connection: Timeout")
-            raise Exception("Failed to acquire a connection: Timeout")
-
+    def _decrement_thread_waiting(self):
         with self.lock:
             self.threads_waiting -= 1
+
+    def _get_connection(self):
+        with self.lock:
             self.in_use_conn += 1
             if self.all_connections:
                 conn = self.all_connections.pop()
@@ -55,15 +66,14 @@ class ConnectionPool:
             else:
                 conn = self.create_new_connection()
                 logger.info(f"New connection created and acquired: {conn}")
-
-        return conn
+            return conn
 
     def release(self, conn):
-        with self.lock:
-            if not conn or self.is_connection_closed(conn):
-                logger.warning("Connection is already closed and will not be released.")
-                return
+        if not conn or self.is_connection_closed(conn):
+            logger.warning("Connection is already closed and will not be released.")
+            return
 
+        with self.lock:
             self.in_use_conn -= 1
             if len(self.all_connections) < self.maxconn:
                 self.all_connections.append(conn)
