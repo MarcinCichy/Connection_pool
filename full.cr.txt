@@ -34,114 +34,115 @@ def stress_test(filename='settings.ini'):
 
 
 def test_connection_usage(filename='settings.ini'):
-    return load_config(filename, 'test_connection_usage')
+    return load_config(filename, 'test_connection_usage') 
 
 ==================== 
 FILE: server_package/conn_pool.py 
 
 import time
+import threading
 from psycopg2 import connect as pg_connect
 from connection_pool.server_package.config import db_config
 from connection_pool.server_package.logger_config import setup_logger
-import threading
 
 logger = setup_logger('connection_pool_logger')
 
 
-class ConnectionPool:
-    def __init__(self, minconn, maxconn, cleanup_interval):
+class ConnectionFactory:
+    @staticmethod
+    def create_new_connection():
+        params = db_config()
+        conn = pg_connect(**params)
+        logger.debug(f"New connection created: {conn}")
+        return conn
+
+
+class ConnectionManager:
+    def __init__(self, minconn, maxconn):
         self.minconn = int(minconn)
         self.maxconn = int(maxconn)
-        self.cleanup_interval = int(cleanup_interval)
         self.all_connections = []
         self.in_use_conn = 0
         self.threads_waiting = 0
         self.total_threads = 0
         self.lock = threading.Lock()
         self.semaphore = threading.BoundedSemaphore(self.maxconn)
-        self.initialize_pool()
-        self.start_cleanup_thread()
+        self._initialize_pool()
 
-    def initialize_pool(self):
+    def _initialize_pool(self):
         with self.lock:
             for _ in range(self.minconn):
-                self.all_connections.append(self.create_new_connection())
+                self.all_connections.append(ConnectionFactory.create_new_connection())
             logger.info(f"Initialized connection pool with {self.minconn} connections.")
-
-    def create_new_connection(self):
-        params = db_config()
-        conn = pg_connect(**params)
-        logger.debug(f"New connection created: {conn}")
-        return conn
 
     def acquire(self):
         logger.debug("Attempting to acquire semaphore...")
-        with self.lock:
-            self.threads_waiting += 1
-            self.total_threads += 1
+        self._increment_thread_waiting()
+
         if not self.semaphore.acquire(timeout=10):
-            with self.lock:
-                self.threads_waiting -= 1
+            self._decrement_thread_waiting()
             logger.error("Failed to acquire a connection: Timeout")
             raise Exception("Failed to acquire a connection: Timeout")
 
+        conn = self._get_connection()
+
+        self._decrement_thread_waiting()
+        return conn
+
+    def release(self, conn):
+        if not conn or self.is_connection_closed(conn):
+            logger.warning("Connection is already closed and will not be released.")
+            return
+
         with self.lock:
-            self.threads_waiting -= 1
+            self.in_use_conn -= 1
+            if len(self.all_connections) < self.maxconn:
+                self.all_connections.append(conn)
+                logger.info(f"Connection added back to pool: {conn}")
+            else:
+                self._close_connection(conn)
+                logger.info(f"Connection closed as pool is full: {conn}")
+
+        self.semaphore.release()
+
+    def handle_connection_error(self, conn):
+        with self.lock:
+            if conn and not self.is_connection_closed(conn):
+                self.in_use_conn -= 1
+                self._close_connection(conn)
+                logger.error(f"Connection closed due to error: {conn}")
+
+            if len(self.all_connections) < self.maxconn:
+                new_conn = ConnectionFactory.create_new_connection()
+                self.all_connections.append(new_conn)
+                logger.info(f"Replaced bad connection with a new one: {new_conn}")
+
+        self.semaphore.release()
+
+    def _get_connection(self):
+        with self.lock:
+            self.in_use_conn += 1
             if self.all_connections:
                 conn = self.all_connections.pop()
                 logger.info(f"Connection acquired from pool: {conn}")
             else:
-                conn = self.create_new_connection()
+                conn = ConnectionFactory.create_new_connection()
                 logger.info(f"New connection created and acquired: {conn}")
-            self.in_use_conn += 1
             return conn
 
-    def release(self, conn):
+    def _increment_thread_waiting(self):
         with self.lock:
-            if not conn:
-                logger.warning("No connection provided to release.")
-                return
-            if self.is_connection_closed(conn):
-                logger.warning(f"Connection is already closed and will not be released: {conn}")
-                return
+            self.threads_waiting += 1
+            self.total_threads += 1
 
-            self.in_use_conn -= 1
-            if not self.is_connection_closed(conn):
-                if len(self.all_connections) < self.maxconn:
-                    self.all_connections.append(conn)
-                    logger.info(f"Connection added back to pool: {conn}")
-                else:
-                    self.close_connection(conn)
-                    logger.info(f"Connection closed as pool is full: {conn}")
-            else:
-                logger.info(f"Connection was already closed and not added to pool: {conn}")
-
-            self.semaphore.release()
-
-    def handle_connection_error(self, conn):
-        logger.error(f"Handling connection error for: {conn}")
+    def _decrement_thread_waiting(self):
         with self.lock:
-            if conn and not self.is_connection_closed(conn):
-                self.in_use_conn -= 1
-                self.close_connection(conn)
-                logger.error(f"Connection closed due to error: {conn}")
+            self.threads_waiting -= 1
 
-            if len(self.all_connections) < self.maxconn:
-                new_conn = self.create_new_connection()
-                self.all_connections.append(new_conn)
-                logger.info(f"Replaced bad connection with a new one: {new_conn}")
+    def is_connection_closed(self, conn):
+        return conn.closed
 
-            self.semaphore.release()
-
-    def cleanup_pool(self):
-        with self.lock:
-            logger.info(f"Starting cleanup. Available connections before cleanup: {len(self.all_connections)}")
-            while len(self.all_connections) > self.minconn:
-                conn = self.all_connections.pop()
-                self.close_connection(conn)
-            logger.info(f"Cleanup finished. Available connections after cleanup: {len(self.all_connections)}")
-
-    def close_connection(self, conn):
+    def _close_connection(self, conn):
         try:
             if not self.is_connection_closed(conn):
                 conn.close()
@@ -151,41 +152,48 @@ class ConnectionPool:
         except Exception as e:
             logger.error(f"Error closing connection: {e}")
 
-    def is_connection_closed(self, conn):
-        return conn.closed
-
     def info(self):
         with self.lock:
             total_connections = self.in_use_conn + len(self.all_connections)
-            logger.info(f"In use: {self.in_use_conn}, Available: {len(self.all_connections)}, Total: {total_connections}, "
-                         f"Threads waiting: {self.threads_waiting}, Total threads: {self.total_threads}")
+            logger.info(
+                f"In use: {self.in_use_conn}, Available: {len(self.all_connections)}, Total: {total_connections}, "
+                f"Threads waiting: {self.threads_waiting}, Total threads: {self.total_threads}")
 
     def maintain_minconn(self):
-        """Ensure there are at least minconn connections in the pool."""
         with self.lock:
             while len(self.all_connections) < self.minconn:
-                self.all_connections.append(self.create_new_connection())
+                self.all_connections.append(ConnectionFactory.create_new_connection())
             logger.debug(f"Ensured minimum connections. Available: {len(self.all_connections)}")
 
+
+class ConnectionCleanupTask:
+    def __init__(self, manager: ConnectionManager, cleanup_interval):
+        self.manager = manager
+        self.cleanup_interval = int(cleanup_interval)
+        self.start_cleanup_thread()
+
     def start_cleanup_thread(self):
-        """Start a background thread that cleans up the pool periodically."""
-        cleanup_thread = threading.Thread(target=self.cleanup_task, daemon=True)
+        cleanup_thread = threading.Thread(target=self._cleanup_task, daemon=True)
         cleanup_thread.start()
 
-    def cleanup_task(self):
-        """Periodically clean up the pool to ensure it's not overpopulated."""
+    def _cleanup_task(self):
         while True:
             time.sleep(self.cleanup_interval)
-            self.cleanup_pool_async()
+            self._cleanup_pool()
 
-    def cleanup_pool_async(self):
-        """Perform cleanup asynchronously."""
-        threading.Thread(target=self.cleanup_pool).start()
+    def _cleanup_pool(self):
+        with self.manager.lock:
+            logger.info(f"Starting cleanup. Available connections before cleanup: {len(self.manager.all_connections)}")
+            while len(self.manager.all_connections) > self.manager.minconn:
+                conn = self.manager.all_connections.pop()
+                self.manager._close_connection(conn)
+            logger.info(f"Cleanup finished. Available connections after cleanup: {len(self.manager.all_connections)}")
+ 
 
 ==================== 
 FILE: server_package/connect.py 
 
-from connection_pool.server_package.conn_pool import ConnectionPool
+from connection_pool.server_package.conn_pool import ConnectionManager, ConnectionCleanupTask
 from connection_pool.server_package.config import connection_pool_config
 from connection_pool.server_package.logger_config import setup_logger
 
@@ -197,12 +205,13 @@ class DatabaseConnectionError(Exception):
 
 
 params = connection_pool_config()
-pool = ConnectionPool(params['minconn'], params['maxconn'], params['cleanup_interval'])
+manager = ConnectionManager(params['minconn'], params['maxconn'])
+cleanup_task = ConnectionCleanupTask(manager, params['cleanup_interval'])
 
 
 def connect():
     try:
-        return pool.acquire()
+        return manager.acquire()
     except Exception as e:
         logger.error(f"[CONNECT ERROR] Failed to acquire connection: {e}")
         raise DatabaseConnectionError(f"Connect error = {e}")
@@ -210,7 +219,7 @@ def connect():
 
 def release_connection(conn):
     try:
-        pool.release(conn)
+        manager.release(conn)
     except Exception as e:
         logger.error(f"[RELEASE ERROR] Failed to release connection: {e}")
         raise e
@@ -218,16 +227,44 @@ def release_connection(conn):
 
 def handle_connection_error(conn):
     try:
-        pool.handle_connection_error(conn)
+        manager.handle_connection_error(conn)
     except Exception as e:
         logger.error(f"[HANDLE ERROR] Failed to handle connection error: {e}")
         raise e
 
 
 def info():
-    pool.info()
+    manager.info()
 
  
+
+==================== 
+FILE: server_package/logger_config.py 
+
+import logging
+import colorlog
+
+
+def setup_logger(name='my_logger', level=logging.DEBUG):
+    formatter = colorlog.ColoredFormatter(
+        "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt='%Y-%m-%d %H:%M:%S',
+        log_colors={
+            'DEBUG': 'cyan',
+            'INFO': 'green',
+            'WARNING': 'yellow',
+            'ERROR': 'red',
+            'CRITICAL': 'bold_red',
+        }
+    )
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+
+    logger = logging.getLogger(name)
+    logger.addHandler(handler)
+    logger.setLevel(level)
+
+    return logger 
 
 ==================== 
 FILE: server_package/stress_test.py 
@@ -296,39 +333,11 @@ def run_stress_test():
 
 if __name__ == "__main__":
     run_stress_test()
-    logger.info("End of Stress Test")
- 
+    logger.info("End of Stress Test") 
+
 
 ====================
-FILE: server_package/logger_config.py
-
-import logging
-import colorlog
-
-
-def setup_logger(name='my_logger', level=logging.DEBUG):
-    formatter = colorlog.ColoredFormatter(
-        "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt='%Y-%m-%d %H:%M:%S',
-        log_colors={
-            'DEBUG': 'cyan',
-            'INFO': 'green',
-            'WARNING': 'yellow',
-            'ERROR': 'red',
-            'CRITICAL': 'bold_red',
-        }
-    )
-    handler = logging.StreamHandler()
-    handler.setFormatter(formatter)
-
-    logger = logging.getLogger(name)
-    logger.addHandler(handler)
-    logger.setLevel(level)
-
-    return logger
-
-====================
-FILE: server_package/settings.ini 
+FILE: server_package/settings.ini
 
 [postgresql]
 host=127.0.0.1
