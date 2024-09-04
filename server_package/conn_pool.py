@@ -1,41 +1,41 @@
 import time
+import threading
 from psycopg2 import connect as pg_connect
 from connection_pool.server_package.config import db_config
 from connection_pool.server_package.logger_config import setup_logger
-import threading
 
 logger = setup_logger('connection_pool_logger')
 
 
-class ConnectionPool:
-    def __init__(self, minconn, maxconn, cleanup_interval):
+class ConnectionFactory:
+    @staticmethod
+    def create_new_connection():
+        params = db_config()
+        conn = pg_connect(**params)
+        logger.debug(f"New connection created: {conn}")
+        return conn
+
+
+class ConnectionManager:
+    def __init__(self, minconn, maxconn):
         self.minconn = int(minconn)
         self.maxconn = int(maxconn)
-        self.cleanup_interval = int(cleanup_interval)
         self.all_connections = []
         self.in_use_conn = 0
         self.threads_waiting = 0
         self.total_threads = 0
         self.lock = threading.Lock()
         self.semaphore = threading.BoundedSemaphore(self.maxconn)
-        self.initialize_pool()
-        self.start_cleanup_thread()
+        self._initialize_pool()
 
-    def initialize_pool(self):
+    def _initialize_pool(self):
         with self.lock:
             for _ in range(self.minconn):
-                self.all_connections.append(self.create_new_connection())
+                self.all_connections.append(ConnectionFactory.create_new_connection())
             logger.info(f"Initialized connection pool with {self.minconn} connections.")
-
-    def create_new_connection(self):
-        params = db_config()
-        conn = pg_connect(**params)
-        logger.debug(f"New connection created: {conn}")
-        return conn
 
     def acquire(self):
         logger.debug("Attempting to acquire semaphore...")
-
         self._increment_thread_waiting()
 
         if not self.semaphore.acquire(timeout=10):
@@ -48,26 +48,6 @@ class ConnectionPool:
         self._decrement_thread_waiting()
         return conn
 
-    def _increment_thread_waiting(self):
-        with self.lock:
-            self.threads_waiting += 1
-            self.total_threads += 1
-
-    def _decrement_thread_waiting(self):
-        with self.lock:
-            self.threads_waiting -= 1
-
-    def _get_connection(self):
-        with self.lock:
-            self.in_use_conn += 1
-            if self.all_connections:
-                conn = self.all_connections.pop()
-                logger.info(f"Connection acquired from pool: {conn}")
-            else:
-                conn = self.create_new_connection()
-                logger.info(f"New connection created and acquired: {conn}")
-            return conn
-
     def release(self, conn):
         if not conn or self.is_connection_closed(conn):
             logger.warning("Connection is already closed and will not be released.")
@@ -79,7 +59,7 @@ class ConnectionPool:
                 self.all_connections.append(conn)
                 logger.info(f"Connection added back to pool: {conn}")
             else:
-                self.close_connection(conn)
+                self._close_connection(conn)
                 logger.info(f"Connection closed as pool is full: {conn}")
 
         self.semaphore.release()
@@ -88,25 +68,40 @@ class ConnectionPool:
         with self.lock:
             if conn and not self.is_connection_closed(conn):
                 self.in_use_conn -= 1
-                self.close_connection(conn)
+                self._close_connection(conn)
                 logger.error(f"Connection closed due to error: {conn}")
 
             if len(self.all_connections) < self.maxconn:
-                new_conn = self.create_new_connection()
+                new_conn = ConnectionFactory.create_new_connection()
                 self.all_connections.append(new_conn)
                 logger.info(f"Replaced bad connection with a new one: {new_conn}")
 
         self.semaphore.release()
 
-    def cleanup_pool(self):
+    def _get_connection(self):
         with self.lock:
-            logger.info(f"Starting cleanup. Available connections before cleanup: {len(self.all_connections)}")
-            while len(self.all_connections) > self.minconn:
+            self.in_use_conn += 1
+            if self.all_connections:
                 conn = self.all_connections.pop()
-                self.close_connection(conn)
-            logger.info(f"Cleanup finished. Available connections after cleanup: {len(self.all_connections)}")
+                logger.info(f"Connection acquired from pool: {conn}")
+            else:
+                conn = ConnectionFactory.create_new_connection()
+                logger.info(f"New connection created and acquired: {conn}")
+            return conn
 
-    def close_connection(self, conn):
+    def _increment_thread_waiting(self):
+        with self.lock:
+            self.threads_waiting += 1
+            self.total_threads += 1
+
+    def _decrement_thread_waiting(self):
+        with self.lock:
+            self.threads_waiting -= 1
+
+    def is_connection_closed(self, conn):
+        return conn.closed
+
+    def _close_connection(self, conn):
         try:
             if not self.is_connection_closed(conn):
                 conn.close()
@@ -116,9 +111,6 @@ class ConnectionPool:
         except Exception as e:
             logger.error(f"Error closing connection: {e}")
 
-    def is_connection_closed(self, conn):
-        return conn.closed
-
     def info(self):
         with self.lock:
             total_connections = self.in_use_conn + len(self.all_connections)
@@ -127,23 +119,31 @@ class ConnectionPool:
                 f"Threads waiting: {self.threads_waiting}, Total threads: {self.total_threads}")
 
     def maintain_minconn(self):
-        """Ensure there are at least minconn connections in the pool."""
         with self.lock:
             while len(self.all_connections) < self.minconn:
-                self.all_connections.append(self.create_new_connection())
+                self.all_connections.append(ConnectionFactory.create_new_connection())
             logger.debug(f"Ensured minimum connections. Available: {len(self.all_connections)}")
 
+
+class ConnectionCleanupTask:
+    def __init__(self, manager: ConnectionManager, cleanup_interval):
+        self.manager = manager
+        self.cleanup_interval = int(cleanup_interval)
+        self.start_cleanup_thread()
+
     def start_cleanup_thread(self):
-        """Start a background thread that cleans up the pool periodically."""
-        cleanup_thread = threading.Thread(target=self.cleanup_task, daemon=True)
+        cleanup_thread = threading.Thread(target=self._cleanup_task, daemon=True)
         cleanup_thread.start()
 
-    def cleanup_task(self):
-        """Periodically clean up the pool to ensure it's not overpopulated."""
+    def _cleanup_task(self):
         while True:
             time.sleep(self.cleanup_interval)
-            self.cleanup_pool_async()
+            self._cleanup_pool()
 
-    def cleanup_pool_async(self):
-        """Perform cleanup asynchronously."""
-        threading.Thread(target=self.cleanup_pool).start()
+    def _cleanup_pool(self):
+        with self.manager.lock:
+            logger.info(f"Starting cleanup. Available connections before cleanup: {len(self.manager.all_connections)}")
+            while len(self.manager.all_connections) > self.manager.minconn:
+                conn = self.manager.all_connections.pop()
+                self.manager._close_connection(conn)
+            logger.info(f"Cleanup finished. Available connections after cleanup: {len(self.manager.all_connections)}")

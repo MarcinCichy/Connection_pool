@@ -1,4 +1,4 @@
-from connection_pool.server_package.conn_pool import ConnectionPool
+from connection_pool.server_package.conn_pool import ConnectionManager, ConnectionCleanupTask
 from connection_pool.server_package.config import connection_pool_config
 from connection_pool.server_package.logger_config import setup_logger
 
@@ -10,12 +10,13 @@ class DatabaseConnectionError(Exception):
 
 
 params = connection_pool_config()
-pool = ConnectionPool(params['minconn'], params['maxconn'], params['cleanup_interval'])
+manager = ConnectionManager(params['minconn'], params['maxconn'])
+cleanup_task = ConnectionCleanupTask(manager, params['cleanup_interval'])
 
 
 def connect():
     try:
-        return pool.acquire()
+        return manager.acquire()
     except Exception as e:
         logger.error(f"[CONNECT ERROR] Failed to acquire connection: {e}")
         raise DatabaseConnectionError(f"Connect error = {e}")
@@ -23,7 +24,7 @@ def connect():
 
 def release_connection(conn):
     try:
-        pool.release(conn)
+        manager.release(conn)
     except Exception as e:
         logger.error(f"[RELEASE ERROR] Failed to release connection: {e}")
         raise e
@@ -31,12 +32,12 @@ def release_connection(conn):
 
 def handle_connection_error(conn):
     try:
-        pool.handle_connection_error(conn)
+        manager.handle_connection_error(conn)
     except Exception as e:
         logger.error(f"[HANDLE ERROR] Failed to handle connection error: {e}")
         raise e
 
 
 def info():
-    pool.info()
+    manager.info()
 
