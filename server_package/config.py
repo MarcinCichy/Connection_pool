@@ -22,10 +22,6 @@ def connection_pool_config(filename='settings.ini'):
     return load_config(filename, 'connection_pool')
 
 
-def server_data(filename='settings.ini'):
-    return load_config(filename, 'server_data')
-
-
 def stress_test(filename='settings.ini'):
     return load_config(filename, 'stress_test')
 

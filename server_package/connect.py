@@ -10,7 +10,7 @@ class DatabaseConnectionError(Exception):
 
 
 params = connection_pool_config()
-manager = ConnectionManager(params['minconn'], params['maxconn'])
+manager = ConnectionManager(params['minconn'], params['maxconn'], params['timeout'])
 cleanup_task = ConnectionCleanupTask(manager, params['cleanup_interval'])
 
 
