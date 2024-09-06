@@ -23,7 +23,6 @@ class ConnectionManager:
         self.timeout = int(timeout)
         self.all_connections = []
         self.in_use_conn = 0
-        self.threads_waiting = 0
         self.lock = threading.Lock()
         self.semaphore = threading.BoundedSemaphore(self.maxconn)
         self._initialize_pool()
@@ -37,21 +36,11 @@ class ConnectionManager:
     def acquire(self):
         logger.debug("Attempting to acquire semaphore...")
 
-        with self.lock:
-            self.threads_waiting += 1
-
         if not self.semaphore.acquire(timeout=self.timeout):
-            with self.lock:
-                self.threads_waiting -= 1
             logger.error("Failed to acquire a connection: Timeout")
             raise Exception("Failed to acquire a connection: Timeout")
 
-        conn = self._get_connection()
-
-        with self.lock:
-            self.threads_waiting -= 1
-
-        return conn
+        return self._get_connection()
 
     def release(self, conn):
         if not conn or self.is_connection_closed(conn):
@@ -59,7 +48,8 @@ class ConnectionManager:
             return
 
         with self.lock:
-            self.in_use_conn -= 1
+            if self.in_use_conn > 0:
+                self.in_use_conn -= 1
             if len(self.all_connections) < self.maxconn:
                 self.all_connections.append(conn)
                 logger.info(f"Connection added back to pool: {conn}")
@@ -77,9 +67,7 @@ class ConnectionManager:
                 logger.error(f"Connection closed due to error: {conn}")
 
             if len(self.all_connections) < self.maxconn:
-                new_conn = ConnectionFactory.create_new_connection()
-                self.all_connections.append(new_conn)
-                logger.info(f"Replaced bad connection with a new one: {new_conn}")
+                self._add_new_connection()
 
         self.semaphore.release()
 
@@ -90,9 +78,13 @@ class ConnectionManager:
                 conn = self.all_connections.pop()
                 logger.info(f"Connection acquired from pool: {conn}")
             else:
-                conn = ConnectionFactory.create_new_connection()
-                logger.info(f"New connection created and acquired: {conn}")
+                conn = self._add_new_connection()
             return conn
+
+    def _add_new_connection(self):
+        conn = ConnectionFactory.create_new_connection()
+        logger.info(f"New connection created and acquired: {conn}")
+        return conn
 
     def is_connection_closed(self, conn):
         return conn.closed
@@ -111,18 +103,7 @@ class ConnectionManager:
         with self.lock:
             total_connections = self.in_use_conn + len(self.all_connections)
             logger.info(
-                f"In use: {self.in_use_conn}, Available: {len(self.all_connections)}, Total: {total_connections}, "
-                f"Threads waiting: {self.threads_waiting}")
-
-    def cleanup_excess_connections(self):
-        with self.lock:
-            excess_connections = len(self.all_connections) - self.minconn
-            if excess_connections > 0:
-                for _ in range(excess_connections):
-                    conn = self.all_connections.pop()
-                    self._close_connection(conn)
-            logger.info(f"Cleanup finished. Available connections: {len(self.all_connections)}")
-
+                f"In use: {self.in_use_conn}, Available: {len(self.all_connections)}, Total: {total_connections}")
 
 class ConnectionCleanupTask:
     def __init__(self, manager: ConnectionManager, cleanup_interval):
@@ -137,4 +118,12 @@ class ConnectionCleanupTask:
     def _cleanup_task(self):
         while True:
             time.sleep(self.cleanup_interval)
-            self.manager.cleanup_excess_connections()
+            self._cleanup_pool()
+
+    def _cleanup_pool(self):
+        with self.manager.lock:
+            logger.info(f"Starting cleanup. Available connections before cleanup: {len(self.manager.all_connections)}")
+            while len(self.manager.all_connections) > self.manager.minconn:
+                conn = self.manager.all_connections.pop()
+                self.manager._close_connection(conn)
+            logger.info(f"Cleanup finished. Available connections after cleanup: {len(self.manager.all_connections)}")

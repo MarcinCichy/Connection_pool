@@ -25,10 +25,6 @@ def connection_pool_config(filename='settings.ini'):
     return load_config(filename, 'connection_pool')
 
 
-def server_data(filename='settings.ini'):
-    return load_config(filename, 'server_data')
-
-
 def stress_test(filename='settings.ini'):
     return load_config(filename, 'stress_test')
 
@@ -58,13 +54,12 @@ class ConnectionFactory:
 
 
 class ConnectionManager:
-    def __init__(self, minconn, maxconn):
+    def __init__(self, minconn, maxconn, timeout):
         self.minconn = int(minconn)
         self.maxconn = int(maxconn)
+        self.timeout = int(timeout)
         self.all_connections = []
         self.in_use_conn = 0
-        self.threads_waiting = 0
-        self.total_threads = 0
         self.lock = threading.Lock()
         self.semaphore = threading.BoundedSemaphore(self.maxconn)
         self._initialize_pool()
@@ -77,17 +72,12 @@ class ConnectionManager:
 
     def acquire(self):
         logger.debug("Attempting to acquire semaphore...")
-        self._increment_thread_waiting()
 
-        if not self.semaphore.acquire(timeout=10):
-            self._decrement_thread_waiting()
+        if not self.semaphore.acquire(timeout=self.timeout):
             logger.error("Failed to acquire a connection: Timeout")
             raise Exception("Failed to acquire a connection: Timeout")
 
-        conn = self._get_connection()
-
-        self._decrement_thread_waiting()
-        return conn
+        return self._get_connection()
 
     def release(self, conn):
         if not conn or self.is_connection_closed(conn):
@@ -95,7 +85,8 @@ class ConnectionManager:
             return
 
         with self.lock:
-            self.in_use_conn -= 1
+            if self.in_use_conn > 0:
+                self.in_use_conn -= 1
             if len(self.all_connections) < self.maxconn:
                 self.all_connections.append(conn)
                 logger.info(f"Connection added back to pool: {conn}")
@@ -113,9 +104,7 @@ class ConnectionManager:
                 logger.error(f"Connection closed due to error: {conn}")
 
             if len(self.all_connections) < self.maxconn:
-                new_conn = ConnectionFactory.create_new_connection()
-                self.all_connections.append(new_conn)
-                logger.info(f"Replaced bad connection with a new one: {new_conn}")
+                self._add_new_connection()
 
         self.semaphore.release()
 
@@ -126,18 +115,13 @@ class ConnectionManager:
                 conn = self.all_connections.pop()
                 logger.info(f"Connection acquired from pool: {conn}")
             else:
-                conn = ConnectionFactory.create_new_connection()
-                logger.info(f"New connection created and acquired: {conn}")
+                conn = self._add_new_connection()
             return conn
 
-    def _increment_thread_waiting(self):
-        with self.lock:
-            self.threads_waiting += 1
-            self.total_threads += 1
-
-    def _decrement_thread_waiting(self):
-        with self.lock:
-            self.threads_waiting -= 1
+    def _add_new_connection(self):
+        conn = ConnectionFactory.create_new_connection()
+        logger.info(f"New connection created and acquired: {conn}")
+        return conn
 
     def is_connection_closed(self, conn):
         return conn.closed
@@ -156,15 +140,7 @@ class ConnectionManager:
         with self.lock:
             total_connections = self.in_use_conn + len(self.all_connections)
             logger.info(
-                f"In use: {self.in_use_conn}, Available: {len(self.all_connections)}, Total: {total_connections}, "
-                f"Threads waiting: {self.threads_waiting}, Total threads: {self.total_threads}")
-
-    def maintain_minconn(self):
-        with self.lock:
-            while len(self.all_connections) < self.minconn:
-                self.all_connections.append(ConnectionFactory.create_new_connection())
-            logger.debug(f"Ensured minimum connections. Available: {len(self.all_connections)}")
-
+                f"In use: {self.in_use_conn}, Available: {len(self.all_connections)}, Total: {total_connections}")
 
 class ConnectionCleanupTask:
     def __init__(self, manager: ConnectionManager, cleanup_interval):
@@ -187,8 +163,7 @@ class ConnectionCleanupTask:
             while len(self.manager.all_connections) > self.manager.minconn:
                 conn = self.manager.all_connections.pop()
                 self.manager._close_connection(conn)
-            logger.info(f"Cleanup finished. Available connections after cleanup: {len(self.manager.all_connections)}")
- 
+            logger.info(f"Cleanup finished. Available connections after cleanup: {len(self.manager.all_connections)}") 
 
 ==================== 
 FILE: server_package/connect.py 
@@ -205,7 +180,7 @@ class DatabaseConnectionError(Exception):
 
 
 params = connection_pool_config()
-manager = ConnectionManager(params['minconn'], params['maxconn'])
+manager = ConnectionManager(params['minconn'], params['maxconn'], params['timeout'])
 cleanup_task = ConnectionCleanupTask(manager, params['cleanup_interval'])
 
 
@@ -337,7 +312,7 @@ if __name__ == "__main__":
 
 
 ====================
-FILE: server_package/settings.ini
+FILE: connection_pool/server_package/settings.ini
 
 [postgresql]
 host=127.0.0.1
@@ -348,13 +323,9 @@ password=pozamiataj.pl
 [connection_pool]
 minconn=5
 maxconn=100
-cleanup_interval=29
-
-[server_data]
-host=127.0.0.1
-port=65432
-buffer_size=1024
+cleanup_interval=58
+timeout=10
 
 [stress_test]
 num_threads=110
-test_duration=120
+test_duration=60
