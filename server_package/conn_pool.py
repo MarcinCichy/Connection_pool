@@ -40,11 +40,12 @@ class ConnectionManager:
             logger.error("Failed to acquire a connection: Timeout")
             raise Exception("Failed to acquire a connection: Timeout")
 
-        return self._get_connection()
+        conn = self._get_connection()
+        return conn
 
     def release(self, conn):
         if not conn or self.is_connection_closed(conn):
-            logger.warning("Connection is already closed and will not be released.")
+            logger.warning(f"Connection {conn} is already closed and will not be released.")
             return
 
         with self.lock:
@@ -52,10 +53,10 @@ class ConnectionManager:
                 self.in_use_conn -= 1
             if len(self.all_connections) < self.maxconn:
                 self.all_connections.append(conn)
-                logger.info(f"Connection added back to pool: {conn}")
+                logger.info(f"Connection {conn} added back to pool.")
             else:
                 self._close_connection(conn)
-                logger.info(f"Connection closed as pool is full: {conn}")
+                logger.info(f"Connection {conn} closed as pool is full.")
 
         self.semaphore.release()
 
@@ -64,7 +65,7 @@ class ConnectionManager:
             if conn and not self.is_connection_closed(conn):
                 self.in_use_conn -= 1
                 self._close_connection(conn)
-                logger.error(f"Connection closed due to error: {conn}")
+                logger.error(f"Connection {conn} closed due to error.")
 
             if len(self.all_connections) < self.maxconn:
                 self._add_new_connection()
@@ -76,7 +77,7 @@ class ConnectionManager:
             self.in_use_conn += 1
             if self.all_connections:
                 conn = self.all_connections.pop()
-                logger.info(f"Connection acquired from pool: {conn}")
+                logger.info(f"Connection {conn} acquired from pool.")
             else:
                 conn = self._add_new_connection()
             return conn
@@ -93,17 +94,18 @@ class ConnectionManager:
         try:
             if not self.is_connection_closed(conn):
                 conn.close()
-                logger.debug(f"Connection closed: {conn}")
+                logger.debug(f"Connection {conn} closed.")
             else:
-                logger.debug(f"Connection was already closed: {conn}")
+                logger.debug(f"Connection {conn} was already closed.")
         except Exception as e:
-            logger.error(f"Error closing connection: {e}")
+            logger.error(f"Error closing connection {conn}: {e}")
 
     def info(self):
         with self.lock:
             total_connections = self.in_use_conn + len(self.all_connections)
             logger.info(
                 f"In use: {self.in_use_conn}, Available: {len(self.all_connections)}, Total: {total_connections}")
+
 
 class ConnectionCleanupTask:
     def __init__(self, manager: ConnectionManager, cleanup_interval):

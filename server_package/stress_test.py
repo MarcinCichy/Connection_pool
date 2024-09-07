@@ -8,6 +8,7 @@ from connection_pool.server_package.logger_config import setup_logger
 
 logger = setup_logger('stress_test_logger')
 params = stress_test()
+
 NUM_THREADS = int(params['num_threads'])
 TEST_DURATION = int(params['test_duration'])
 
@@ -18,7 +19,10 @@ def stress_test_operation(thread_id):
     try:
         while time.time() - start_time < TEST_DURATION:
             try:
+                logger.info(f"Thread {thread_id} attempting to acquire a connection...")
                 conn = connect()
+                logger.info(f"Thread {thread_id} acquired a connection.")
+
                 with conn.cursor() as cur:
                     if random.random() < 0.1:
                         cur.execute("SELECT * FROM non_existing_table")
@@ -41,22 +45,30 @@ def stress_test_operation(thread_id):
             except Exception as e:
                 if conn:
                     handle_connection_error(conn)
+                    conn = None
                 logger.error(f"Thread {thread_id} encountered an error: {e}")
             finally:
                 if conn:
                     release_connection(conn)
                     conn = None
-            time.sleep(random.uniform(0.01, 0.1))
+            time.sleep(random.uniform(0.001, 0.01))
     except Exception as e:
         logger.critical(f"Thread {thread_id} encountered a fatal error: {e}")
 
 
 def run_stress_test():
     start_time = time.time()
+
+    logger.info(f"Starting stress test with {NUM_THREADS} threads.")
+
     with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
         futures = [executor.submit(stress_test_operation, thread_id) for thread_id in range(NUM_THREADS)]
         for future in futures:
-            future.result()
+            try:
+                future.result()
+            except Exception as e:
+                logger.error(f"Future encountered an error: {e}")
+
     logger.info(f"Stress test completed in {time.time() - start_time} seconds")
 
 

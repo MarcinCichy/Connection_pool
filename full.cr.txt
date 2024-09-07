@@ -77,11 +77,12 @@ class ConnectionManager:
             logger.error("Failed to acquire a connection: Timeout")
             raise Exception("Failed to acquire a connection: Timeout")
 
-        return self._get_connection()
+        conn = self._get_connection()
+        return conn
 
     def release(self, conn):
         if not conn or self.is_connection_closed(conn):
-            logger.warning("Connection is already closed and will not be released.")
+            logger.warning(f"Connection {conn} is already closed and will not be released.")
             return
 
         with self.lock:
@@ -89,10 +90,10 @@ class ConnectionManager:
                 self.in_use_conn -= 1
             if len(self.all_connections) < self.maxconn:
                 self.all_connections.append(conn)
-                logger.info(f"Connection added back to pool: {conn}")
+                logger.info(f"Connection {conn} added back to pool.")
             else:
                 self._close_connection(conn)
-                logger.info(f"Connection closed as pool is full: {conn}")
+                logger.info(f"Connection {conn} closed as pool is full.")
 
         self.semaphore.release()
 
@@ -101,7 +102,7 @@ class ConnectionManager:
             if conn and not self.is_connection_closed(conn):
                 self.in_use_conn -= 1
                 self._close_connection(conn)
-                logger.error(f"Connection closed due to error: {conn}")
+                logger.error(f"Connection {conn} closed due to error.")
 
             if len(self.all_connections) < self.maxconn:
                 self._add_new_connection()
@@ -113,7 +114,7 @@ class ConnectionManager:
             self.in_use_conn += 1
             if self.all_connections:
                 conn = self.all_connections.pop()
-                logger.info(f"Connection acquired from pool: {conn}")
+                logger.info(f"Connection {conn} acquired from pool.")
             else:
                 conn = self._add_new_connection()
             return conn
@@ -130,17 +131,18 @@ class ConnectionManager:
         try:
             if not self.is_connection_closed(conn):
                 conn.close()
-                logger.debug(f"Connection closed: {conn}")
+                logger.debug(f"Connection {conn} closed.")
             else:
-                logger.debug(f"Connection was already closed: {conn}")
+                logger.debug(f"Connection {conn} was already closed.")
         except Exception as e:
-            logger.error(f"Error closing connection: {e}")
+            logger.error(f"Error closing connection {conn}: {e}")
 
     def info(self):
         with self.lock:
             total_connections = self.in_use_conn + len(self.all_connections)
             logger.info(
                 f"In use: {self.in_use_conn}, Available: {len(self.all_connections)}, Total: {total_connections}")
+
 
 class ConnectionCleanupTask:
     def __init__(self, manager: ConnectionManager, cleanup_interval):
@@ -163,7 +165,8 @@ class ConnectionCleanupTask:
             while len(self.manager.all_connections) > self.manager.minconn:
                 conn = self.manager.all_connections.pop()
                 self.manager._close_connection(conn)
-            logger.info(f"Cleanup finished. Available connections after cleanup: {len(self.manager.all_connections)}") 
+            logger.info(f"Cleanup finished. Available connections after cleanup: {len(self.manager.all_connections)}")
+ 
 
 ==================== 
 FILE: server_package/connect.py 
@@ -239,7 +242,8 @@ def setup_logger(name='my_logger', level=logging.DEBUG):
     logger.addHandler(handler)
     logger.setLevel(level)
 
-    return logger 
+    return logger
+ 
 
 ==================== 
 FILE: server_package/stress_test.py 
@@ -254,6 +258,7 @@ from connection_pool.server_package.logger_config import setup_logger
 
 logger = setup_logger('stress_test_logger')
 params = stress_test()
+
 NUM_THREADS = int(params['num_threads'])
 TEST_DURATION = int(params['test_duration'])
 
@@ -264,7 +269,10 @@ def stress_test_operation(thread_id):
     try:
         while time.time() - start_time < TEST_DURATION:
             try:
+                logger.info(f"Thread {thread_id} attempting to acquire a connection...")
                 conn = connect()
+                logger.info(f"Thread {thread_id} acquired a connection.")
+
                 with conn.cursor() as cur:
                     if random.random() < 0.1:
                         cur.execute("SELECT * FROM non_existing_table")
@@ -287,29 +295,37 @@ def stress_test_operation(thread_id):
             except Exception as e:
                 if conn:
                     handle_connection_error(conn)
+                    conn = None
                 logger.error(f"Thread {thread_id} encountered an error: {e}")
             finally:
                 if conn:
                     release_connection(conn)
                     conn = None
-            time.sleep(random.uniform(0.01, 0.1))
+            time.sleep(random.uniform(0.001, 0.01))
     except Exception as e:
         logger.critical(f"Thread {thread_id} encountered a fatal error: {e}")
 
 
 def run_stress_test():
     start_time = time.time()
+
+    logger.info(f"Starting stress test with {NUM_THREADS} threads.")
+
     with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
         futures = [executor.submit(stress_test_operation, thread_id) for thread_id in range(NUM_THREADS)]
         for future in futures:
-            future.result()
+            try:
+                future.result()
+            except Exception as e:
+                logger.error(f"Future encountered an error: {e}")
+
     logger.info(f"Stress test completed in {time.time() - start_time} seconds")
 
 
 if __name__ == "__main__":
     run_stress_test()
-    logger.info("End of Stress Test") 
-
+    logger.info("End of Stress Test")
+ 
 
 ====================
 FILE: connection_pool/server_package/settings.ini
@@ -327,5 +343,5 @@ cleanup_interval=58
 timeout=10
 
 [stress_test]
-num_threads=110
-test_duration=60
+num_threads=300
+test_duration=400
