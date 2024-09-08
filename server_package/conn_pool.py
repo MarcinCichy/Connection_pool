@@ -100,6 +100,14 @@ class ConnectionManager:
         except Exception as e:
             logger.error(f"Error closing connection {conn}: {e}")
 
+    def close_all_connections(self):
+        with self.lock:
+            logger.info("Closing all connections in the pool.")
+            for conn in self.all_connections:
+                self._close_connection(conn)
+            self.all_connections.clear()
+            logger.info("All connections have been closed.")
+
     def info(self):
         with self.lock:
             total_connections = self.in_use_conn + len(self.all_connections)

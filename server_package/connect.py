@@ -41,3 +41,10 @@ def handle_connection_error(conn):
 def info():
     manager.info()
 
+
+def close_all_connections():
+    try:
+        manager.close_all_connections()
+    except Exception as e:
+        logger.error(f"[CLOSE ERROR] Failed to close all connections: {e}")
+        raise e

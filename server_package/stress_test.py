@@ -1,7 +1,7 @@
 import time
 import random
 from concurrent.futures import ThreadPoolExecutor
-from connection_pool.server_package.connect import connect, release_connection, handle_connection_error, info
+from connection_pool.server_package.connect import connect, release_connection, handle_connection_error, info, close_all_connections
 from connection_pool.server_package.config import stress_test
 from psycopg2 import sql
 from connection_pool.server_package.logger_config import setup_logger
@@ -61,13 +61,17 @@ def run_stress_test():
 
     logger.info(f"Starting stress test with {NUM_THREADS} threads.")
 
-    with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-        futures = [executor.submit(stress_test_operation, thread_id) for thread_id in range(NUM_THREADS)]
-        for future in futures:
-            try:
-                future.result()
-            except Exception as e:
-                logger.error(f"Future encountered an error: {e}")
+    try:
+        with ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
+            futures = [executor.submit(stress_test_operation, thread_id) for thread_id in range(NUM_THREADS)]
+            for future in futures:
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(f"Future encountered an error: {e}")
+    finally:
+        close_all_connections()
+        logger.info("All connections have been closed after the stress test.")
 
     logger.info(f"Stress test completed in {time.time() - start_time} seconds")
 
